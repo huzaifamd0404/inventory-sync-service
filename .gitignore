@@ -7,6 +7,8 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.eggs/
+pip-wheel-metadata/
 
 # Virtual environments
 .venv/
@@ -17,12 +19,18 @@ env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
 .coverage
 coverage.xml
 htmlcov/
 
 # Environment and secrets
 .env
+.env.*
+!.env.example
+
+# Alembic
+alembic/versions/*.pyc
 
 # IDE and OS files
 .vscode/
@@ -32,3 +40,4 @@ Thumbs.db
 
 # Docker
 *.log
+docker-data/

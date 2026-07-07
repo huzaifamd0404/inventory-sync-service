@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inventory-sync-service"
+version = "0.1.0"
+description = "Production-ready FastAPI backend for inventory sync"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Inventory Platform Team" }]
+dependencies = [
+  "fastapi==0.116.1",
+  "uvicorn[standard]==0.35.0",
+  "pydantic==2.11.7",
+  "pydantic-settings==2.10.1",
+  "sqlalchemy==2.0.42",
+  "alembic==1.16.4",
+  "psycopg2-binary==2.9.10",
+  "redis==5.2.1",
+  "kafka-python==2.2.15",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.4.1",
+  "httpx==0.28.1",
+  "ruff==0.12.3",
+  "black==24.10.0",
+  "isort==5.13.2",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+combine_as_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "W"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
