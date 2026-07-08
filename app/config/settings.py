@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     postgres_db: str = Field(default="inventory")
     postgres_user: str = Field(default="inventory_user")
     postgres_password: str = Field(default="inventory_pass")
+    database_echo: bool = Field(default=False)
+    database_pool_size: int = Field(default=10, ge=1)
+    database_max_overflow: int = Field(default=20, ge=0)
+    database_pool_timeout: int = Field(default=30, ge=1)
+    database_pool_recycle: int = Field(default=1800, ge=1)
 
     redis_host: str = Field(default="localhost")
     redis_port: int = Field(default=6379)
