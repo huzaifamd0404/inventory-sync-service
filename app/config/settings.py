@@ -29,6 +29,17 @@ class Settings(BaseSettings):
 
     kafka_bootstrap_servers: str = Field(default="localhost:9092")
     kafka_topic_inventory_events: str = Field(default="inventory.events")
+    kafka_topic_inventory_updates: str = Field(default="inventory_updates")
+    kafka_client_id: str = Field(default="inventory-sync-service")
+    kafka_producer_retries: int = Field(default=5, ge=0)
+    kafka_producer_retry_backoff_ms: int = Field(default=200, ge=0)
+    kafka_producer_linger_ms: int = Field(default=5, ge=0)
+    kafka_producer_request_timeout_ms: int = Field(default=30000, ge=1000)
+    kafka_producer_delivery_timeout_ms: int = Field(default=120000, ge=1000)
+    kafka_producer_max_block_ms: int = Field(default=10000, ge=1000)
+    kafka_publish_attempts: int = Field(default=3, ge=1)
+    kafka_publish_retry_backoff_seconds: float = Field(default=0.25, ge=0)
+    kafka_publish_timeout_seconds: int = Field(default=10, ge=1)
 
     enable_dependency_health_checks: bool = Field(default=False)
 
