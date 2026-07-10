@@ -23,6 +23,7 @@ inventory_change_type = sa.Enum(
     "adjustment",
     "sale",
     "restock",
+    "return",
     name="inventory_change_type",
 )
 

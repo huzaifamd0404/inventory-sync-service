@@ -26,7 +26,7 @@ def test_publish_inventory_event_endpoint_returns_event_id() -> None:
         json={
             "product_id": "SKU-55",
             "store_id": "STORE-NYC",
-            "operation": "adjust",
+            "operation": "MANUAL_ADJUSTMENT",
             "quantity": 5,
             "timestamp": "2026-07-09T11:00:00Z",
         },
@@ -42,5 +42,5 @@ def test_publish_inventory_event_endpoint_returns_event_id() -> None:
     assert stub_service.published_event is not None
     assert stub_service.published_event.product_id == "SKU-55"
     assert stub_service.published_event.store_id == "STORE-NYC"
-    assert stub_service.published_event.operation.value == "adjust"
+    assert stub_service.published_event.operation.value == "MANUAL_ADJUSTMENT"
     assert str(stub_service.published_event.event_id) == payload["event_id"]

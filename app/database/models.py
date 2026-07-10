@@ -28,6 +28,7 @@ class InventoryChangeType(str, Enum):
 	ADJUSTMENT = "adjustment"
 	SALE = "sale"
 	RESTOCK = "restock"
+	RETURN = "return"
 
 
 class AnomalySeverity(str, Enum):

@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     kafka_publish_attempts: int = Field(default=3, ge=1)
     kafka_publish_retry_backoff_seconds: float = Field(default=0.25, ge=0)
     kafka_publish_timeout_seconds: int = Field(default=10, ge=1)
+    kafka_consumer_group_id: str = Field(default="inventory-sync-consumer")
+    kafka_consumer_max_attempts: int = Field(default=3, ge=1)
+    kafka_consumer_retry_backoff_seconds: float = Field(default=0.5, ge=0)
 
     enable_dependency_health_checks: bool = Field(default=False)
 

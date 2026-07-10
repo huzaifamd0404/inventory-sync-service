@@ -85,7 +85,7 @@ def test_publish_inventory_event_retries_then_succeeds() -> None:
         event_id=UUID("0e9f4d70-98a3-41f3-b9bc-7439f4ac0f57"),
         product_id="SKU-1",
         store_id="STORE-1",
-        operation=InventoryOperation.adjust,
+        operation=InventoryOperation.MANUAL_ADJUSTMENT,
         quantity=3,
         timestamp=datetime.now(UTC),
     )
@@ -112,7 +112,7 @@ def test_publish_inventory_event_raises_after_retry_exhaustion() -> None:
         event_id=UUID("ea33689f-a241-4df8-8f5d-74e6c292ec02"),
         product_id="SKU-2",
         store_id="STORE-9",
-        operation=InventoryOperation.update,
+        operation=InventoryOperation.RESTOCK,
         quantity=1,
         timestamp=datetime.now(UTC),
     )
