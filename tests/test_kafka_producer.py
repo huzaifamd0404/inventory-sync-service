@@ -62,7 +62,9 @@ def test_from_settings_initializes_producer_with_expected_config() -> None:
         kafka_publish_timeout_seconds=3,
     )
 
-    producer = KafkaInventoryProducer.from_settings(settings=settings, producer_factory=fake_factory)
+    producer = KafkaInventoryProducer.from_settings(
+        settings=settings, producer_factory=fake_factory
+    )
 
     assert producer.topic == "inventory_updates"
     assert captured_kwargs["bootstrap_servers"] == "broker-a:9092,broker-b:9092"

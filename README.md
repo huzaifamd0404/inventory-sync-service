@@ -1,62 +1,116 @@
 # Inventory Sync Service
 
-Production-ready FastAPI backend for real-time inventory synchronization with anomaly-detection-ready architecture.
+Production-ready FastAPI backend for real-time inventory synchronization. Week 1 foundation includes API ingestion, Kafka publish/consume flow, PostgreSQL persistence, Redis cache synchronization, health checks, linting/format tooling, and CI.
 
-## Highlights
+## Architecture
 
-- FastAPI service with `/`, `/health`, and interactive API docs at `/docs`.
-- Python 3.12, Pydantic v2, SQLAlchemy 2.x, Alembic migrations.
-- Containerized stack with FastAPI, PostgreSQL, Redis, ZooKeeper, and Kafka.
-- Clean Architecture-inspired layering to keep domain logic testable and decoupled.
-- CI pipeline for linting and tests.
+The service follows Clean Architecture boundaries and SOLID-friendly module ownership:
+
+- `app/api`: Transport layer (FastAPI routers, dependency wiring, error mapping).
+- `app/services`: Application use cases (`InventoryEventService`, `InventoryService`, `HealthService`).
+- `app/producer` and `app/consumer`: Kafka adapters isolated from business logic.
+- `app/database`: SQLAlchemy engine/session and persistence models.
+- `app/cache`: Redis adapter.
+- `app/schemas`: Pydantic contracts for request/response and docs.
+- `app/config`: Settings and JSON structured logging.
+
+Event flow:
+
+1. `POST /api/v1/inventory/events` validates payload and publishes to Kafka.
+2. Consumer reads Kafka message and executes `InventoryService.process_event`.
+3. Inventory state and history are written to PostgreSQL.
+4. Current inventory snapshot is synchronized to Redis.
 
 ## Project Structure
 
-```
+```text
 inventory-sync-service/
   app/
-    api/         # HTTP delivery layer (routes/controllers)
-    services/    # Application business services/use-cases
-    models/      # ORM/domain entities
-    database/    # SQLAlchemy base/session and persistence setup
-    schemas/     # Pydantic v2 request/response DTOs
-    producer/    # Kafka producer adapters
-    consumer/    # Kafka consumer adapters
-    cache/       # Redis adapter layer
-    config/      # App settings and logging
-    utils/       # Shared utility functions
-    main.py      # FastAPI application entrypoint
-  alembic/       # Database migration scripts
-  tests/         # Unit/integration tests
-  docs/          # Technical documentation
-  .github/workflows/ci.yml
-  Dockerfile
+    api/
+    cache/
+    config/
+    consumer/
+    database/
+    producer/
+    schemas/
+    services/
+    main.py
+  tests/
+  docs/
   docker-compose.yml
+  Dockerfile
   pyproject.toml
   requirements.txt
 ```
 
 ## Quick Start (Docker)
 
-1. Copy environment variables:
+1. Create env file:
    - PowerShell: `Copy-Item .env.example .env`
    - Bash: `cp .env.example .env`
-2. Start all services:
+2. Start API + consumer + dependencies:
    - `docker compose up --build`
 3. Open:
    - API root: `http://localhost:8000/`
    - Health: `http://localhost:8000/health`
-   - Docs: `http://localhost:8000/docs`
+   - Swagger: `http://localhost:8000/docs`
 
 ## Local Development
 
-1. Create and activate a virtual environment.
+1. Create and activate a Python 3.12 virtual environment.
 2. Install dependencies:
    - `pip install -r requirements.txt`
 3. Copy env file:
    - `Copy-Item .env.example .env`
-4. Run app:
+4. Run API:
    - `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
+5. Run consumer in another terminal:
+   - `python -m app.consumer.worker`
+
+## API Usage
+
+### Publish Inventory Event
+
+- Endpoint: `POST /api/v1/inventory/events`
+- Request body example:
+
+```json
+{
+  "product_id": "SKU-100",
+  "store_id": "STORE-NYC",
+  "operation": "RESTOCK",
+  "quantity": 10,
+  "timestamp": "2026-07-13T10:00:00Z"
+}
+```
+
+- Response (`202 Accepted`) example:
+
+```json
+{
+  "event_id": "0e9f4d70-98a3-41f3-b9bc-7439f4ac0f57"
+}
+```
+
+## Testing
+
+- Unit and component tests:
+  - `pytest -q`
+- Full integration flow test (FastAPI -> Kafka -> PostgreSQL -> Redis):
+  - PowerShell:
+    - `$env:RUN_E2E_INTEGRATION_TESTS='true'; pytest -q -m integration`
+  - Bash:
+    - `RUN_E2E_INTEGRATION_TESTS=true pytest -q -m integration`
+
+Integration tests require Kafka, PostgreSQL, and Redis to be reachable.
+
+## Code Quality and Hooks
+
+- Lint: `ruff check .`
+- Format check: `black --check .`
+- Import order: `isort --check-only .`
+- Pre-commit install: `pre-commit install`
+- Run all hooks: `pre-commit run --all-files`
 
 ## Database Migrations (Alembic)
 
@@ -64,20 +118,18 @@ inventory-sync-service/
 - Apply migration: `alembic upgrade head`
 - Rollback one step: `alembic downgrade -1`
 
-## Quality Standards
+## Observability and Resilience
 
-- Lint: `ruff check .`
-- Format check: `black --check .`
-- Import order check: `isort --check-only .`
-- Tests: `pytest -q`
-
-## Clean Architecture and SOLID Notes
-
-- API layer depends on service interfaces/use-cases, not persistence details.
-- Infrastructure adapters (Redis, Kafka, SQLAlchemy) are isolated in dedicated packages.
-- Configuration is centralized and typed through Pydantic settings.
-- Explicit type hints are used for maintainability and safer refactors.
+- JSON structured logs with request correlation (`x-request-id`).
+- Global exception handlers return consistent error payloads.
+- Docker Compose health checks for API/PostgreSQL/Redis/Kafka/ZooKeeper.
+- Persistent volumes enabled for PostgreSQL, Redis, Kafka, and ZooKeeper.
 
 ## CI
 
-GitHub Actions workflow at `.github/workflows/ci.yml` runs lint checks and tests on push/PR.
+GitHub Actions workflow (`.github/workflows/ci.yml`) performs:
+
+1. Dependency installation.
+2. Startup of Kafka/PostgreSQL/Redis using Docker Compose.
+3. Lint checks (Ruff, Black, isort).
+4. Test execution including the integration pipeline test.

@@ -28,6 +28,7 @@ dev = [
   "ruff==0.12.3",
   "black==24.10.0",
   "isort==5.13.2",
+  "pre-commit==3.8.0",
 ]
 
 [tool.black]
@@ -42,12 +43,24 @@ combine_as_imports = true
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["alembic/versions/*"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "N", "W"]
-ignore = ["B008"]
+select = ["E", "F", "B", "N", "W"]
+ignore = ["B008", "E501", "W191"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["N802", "N803", "N806"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "integration: marks full integration tests that require Kafka/PostgreSQL/Redis",
+]

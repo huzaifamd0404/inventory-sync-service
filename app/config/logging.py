@@ -2,8 +2,19 @@ from __future__ import annotations
 
 import json
 import logging
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
+
+request_id_context: ContextVar[str | None] = ContextVar("request_id", default=None)
+
+
+def set_request_id(request_id: str | None) -> None:
+    request_id_context.set(request_id)
+
+
+def get_request_id() -> str | None:
+    return request_id_context.get()
 
 
 class JsonLogFormatter(logging.Formatter):
@@ -13,7 +24,14 @@ class JsonLogFormatter(logging.Formatter):
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
         }
+
+        request_id = get_request_id()
+        if request_id:
+            payload["request_id"] = request_id
 
         for key, value in record.__dict__.items():
             if key.startswith("_"):
@@ -59,3 +77,4 @@ def configure_logging(level: str) -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonLogFormatter())
     root_logger.addHandler(handler)
+    logging.captureWarnings(True)

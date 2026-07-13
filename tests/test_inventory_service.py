@@ -82,9 +82,13 @@ def test_inventory_service_processes_all_supported_operations_and_records_histor
             .where(Inventory.sku == "SKU-100")
             .where(Inventory.warehouse_id == "STORE-A")
         ).scalar_one()
-        history_entries = session.execute(
-            select(InventoryHistory).where(InventoryHistory.inventory_id == inventory.id)
-        ).scalars().all()
+        history_entries = (
+            session.execute(
+                select(InventoryHistory).where(InventoryHistory.inventory_id == inventory.id)
+            )
+            .scalars()
+            .all()
+        )
 
     assert inventory.quantity == 8
     assert len(history_entries) == 4

@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.api.v1.endpoints.health import get_health_service
+from app.main import app
 from app.services.health_service import HealthService
 
 client = TestClient(app)

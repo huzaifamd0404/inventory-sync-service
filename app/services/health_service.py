@@ -44,7 +44,9 @@ class HealthService:
         else:
             details["redis"] = "skipped"
 
-        status = "ok" if all(value in {"ok", "skipped"} for value in details.values()) else "degraded"
+        status = (
+            "ok" if all(value in {"ok", "skipped"} for value in details.values()) else "degraded"
+        )
         return HealthResponse(
             status=status,
             service=settings.app_name,

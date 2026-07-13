@@ -8,6 +8,17 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: inventory
+      POSTGRES_USER: inventory_user
+      POSTGRES_PASSWORD: inventory_pass
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: localhost:29092
+      KAFKA_TOPIC_INVENTORY_UPDATES: inventory_updates
+      RUN_E2E_INTEGRATION_TESTS: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,6 +33,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Start integration dependencies
+        run: docker compose up -d --wait postgres redis zookeeper kafka
+
       - name: Lint with Ruff
         run: ruff check .
 
@@ -33,3 +47,7 @@ jobs:
 
       - name: Run tests
         run: pytest -q
+
+      - name: Stop integration dependencies
+        if: always()
+        run: docker compose down -v

@@ -21,11 +21,31 @@ class InventoryOperation(str, Enum):
 
 
 class InventoryEventCreate(BaseModel):
-    product_id: str = Field(min_length=1, max_length=128)
-    store_id: str = Field(min_length=1, max_length=128)
+    product_id: str = Field(
+        min_length=1,
+        max_length=128,
+        description="Product SKU or canonical inventory identifier.",
+        examples=["SKU-100"],
+    )
+    store_id: str = Field(
+        min_length=1,
+        max_length=128,
+        description="Store or warehouse identifier.",
+        examples=["STORE-NYC"],
+    )
     operation: InventoryOperation
-    quantity: int
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    quantity: int = Field(
+        description=(
+            "Operation quantity. SALE/RESTOCK/RETURN require positive values; "
+            "MANUAL_ADJUSTMENT supports positive or negative non-zero values."
+        ),
+        examples=[5],
+    )
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="Timezone-aware timestamp when the event was created.",
+        examples=["2026-07-09T11:00:00Z"],
+    )
 
     @model_validator(mode="after")
     def validate_quantity_for_operation(self) -> "InventoryEventCreate":
@@ -33,7 +53,8 @@ class InventoryEventCreate(BaseModel):
             raise ValueError("quantity must be non-zero for MANUAL_ADJUSTMENT")
 
         if (
-            self.operation in {InventoryOperation.SALE, InventoryOperation.RESTOCK, InventoryOperation.RETURN}
+            self.operation
+            in {InventoryOperation.SALE, InventoryOperation.RESTOCK, InventoryOperation.RETURN}
             and self.quantity <= 0
         ):
             raise ValueError(f"quantity must be positive for {self.operation.value}")
@@ -49,8 +70,11 @@ class InventoryEventCreate(BaseModel):
 
 
 class InventoryEvent(InventoryEventCreate):
-    event_id: UUID
+    event_id: UUID = Field(description="Server-generated unique event identifier")
 
 
 class InventoryEventPublishResponse(BaseModel):
-    event_id: UUID
+    event_id: UUID = Field(
+        description="Accepted event identifier that can be traced in consumer logs",
+        examples=["0e9f4d70-98a3-41f3-b9bc-7439f4ac0f57"],
+    )

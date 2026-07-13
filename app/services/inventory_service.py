@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Callable
 
 from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.cache.redis_client import get_redis_client
@@ -80,7 +80,9 @@ class InventoryService:
         with self._session_factory() as session:
             with session.begin():
                 duplicate = session.execute(
-                    select(InventoryHistory).where(InventoryHistory.source_event_id == source_event_id)
+                    select(InventoryHistory).where(
+                        InventoryHistory.source_event_id == source_event_id
+                    )
                 ).scalar_one_or_none()
                 if duplicate is not None:
                     inventory = session.get(Inventory, duplicate.inventory_id)

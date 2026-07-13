@@ -8,8 +8,9 @@ Create Date: 2026-07-08 00:00:00.000000
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "20260708_0001"
@@ -56,14 +57,28 @@ def upgrade() -> None:
         sa.Column("quantity", sa.Integer(), nullable=False),
         sa.Column("reorder_level", sa.Integer(), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id", name="pk_inventory"),
         sa.UniqueConstraint("sku", "warehouse_id", name="uq_inventory_sku_warehouse"),
     )
-    op.create_index("ix_inventory_sku_warehouse", "inventory", ["sku", "warehouse_id"], unique=False)
+    op.create_index(
+        "ix_inventory_sku_warehouse", "inventory", ["sku", "warehouse_id"], unique=False
+    )
     op.create_index("ix_inventory_updated_at", "inventory", ["updated_at"], unique=False)
-    op.create_index("ix_inventory_warehouse_active", "inventory", ["warehouse_id", "is_active"], unique=False)
+    op.create_index(
+        "ix_inventory_warehouse_active", "inventory", ["warehouse_id", "is_active"], unique=False
+    )
 
     op.create_table(
         "anomalies",
@@ -74,13 +89,30 @@ def upgrade() -> None:
         sa.Column("score", sa.Float(), nullable=False),
         sa.Column("status", anomaly_status, nullable=False, server_default="open"),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("detected_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "detected_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(["inventory_id"], ["inventory.id"], name="fk_anomalies_inventory_id_inventory", ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["inventory_id"],
+            ["inventory.id"],
+            name="fk_anomalies_inventory_id_inventory",
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id", name="pk_anomalies"),
     )
-    op.create_index("ix_anomalies_inventory_detected_at", "anomalies", ["inventory_id", "detected_at"], unique=False)
-    op.create_index("ix_anomalies_status_severity", "anomalies", ["status", "severity"], unique=False)
+    op.create_index(
+        "ix_anomalies_inventory_detected_at",
+        "anomalies",
+        ["inventory_id", "detected_at"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_anomalies_status_severity", "anomalies", ["status", "severity"], unique=False
+    )
 
     op.create_table(
         "inventory_history",
@@ -91,8 +123,18 @@ def upgrade() -> None:
         sa.Column("quantity_after", sa.Integer(), nullable=False),
         sa.Column("quantity_delta", sa.Integer(), nullable=False),
         sa.Column("source_event_id", sa.String(length=128), nullable=True),
-        sa.Column("changed_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["inventory_id"], ["inventory.id"], name="fk_inventory_history_inventory_id_inventory", ondelete="CASCADE"),
+        sa.Column(
+            "changed_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(
+            ["inventory_id"],
+            ["inventory.id"],
+            name="fk_inventory_history_inventory_id_inventory",
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id", name="pk_inventory_history"),
     )
     op.create_index(
@@ -115,12 +157,21 @@ def upgrade() -> None:
         sa.Column("quantity_sold", sa.Integer(), nullable=False),
         sa.Column("sale_price", sa.Numeric(precision=12, scale=2), nullable=True),
         sa.Column("external_sale_id", sa.String(length=128), nullable=True),
-        sa.Column("sold_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["inventory_id"], ["inventory.id"], name="fk_sales_inventory_id_inventory", ondelete="CASCADE"),
+        sa.Column(
+            "sold_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        ),
+        sa.ForeignKeyConstraint(
+            ["inventory_id"],
+            ["inventory.id"],
+            name="fk_sales_inventory_id_inventory",
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id", name="pk_sales"),
     )
     op.create_index("ix_sales_external_sale_id", "sales", ["external_sale_id"], unique=True)
-    op.create_index("ix_sales_inventory_sold_at", "sales", ["inventory_id", "sold_at"], unique=False)
+    op.create_index(
+        "ix_sales_inventory_sold_at", "sales", ["inventory_id", "sold_at"], unique=False
+    )
 
 
 def downgrade() -> None:

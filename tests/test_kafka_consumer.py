@@ -4,18 +4,19 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID
 
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+
 from app.consumer.kafka_consumer import KafkaInventoryConsumer
 from app.database.base import Base
 from app.database.models import Inventory, InventoryHistory
-from app.schemas.inventory import InventoryEvent, InventoryOperation
+from app.schemas.inventory import InventoryEvent
 from app.services.inventory_service import (
     InventoryBusinessRuleError,
     InventoryProcessingResult,
     InventoryService,
     InventoryTransientError,
 )
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
 
 
 class DummyConsumer:
@@ -91,7 +92,11 @@ def test_process_record_commits_after_successful_processing() -> None:
 def test_process_record_retries_transient_failure_then_commits() -> None:
     consumer_client = DummyConsumer()
     service = StubInventoryService(
-        [InventoryTransientError("db timeout"), InventoryTransientError("redis timeout"), make_result()]
+        [
+            InventoryTransientError("db timeout"),
+            InventoryTransientError("redis timeout"),
+            make_result(),
+        ]
     )
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
@@ -172,7 +177,9 @@ def test_process_record_commits_invalid_payload_to_skip_poison_messages() -> Non
 def test_process_record_integration_with_inventory_service_updates_db_and_commits() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    session_factory = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     class InMemoryRedis:
         def __init__(self) -> None:

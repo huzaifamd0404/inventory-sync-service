@@ -25,3 +25,9 @@ class InventoryEventService:
                 extra={"event_id": str(event.event_id)},
             )
             raise InventoryEventServiceError("failed to publish inventory event") from exc
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "inventory_event_service_publish_unexpected_failure",
+                extra={"event_id": str(event.event_id)},
+            )
+            raise InventoryEventServiceError("unexpected publisher failure") from exc
