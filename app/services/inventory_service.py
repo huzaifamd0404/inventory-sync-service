@@ -16,6 +16,7 @@ from app.cache.redis_client import get_redis_client
 from app.database.models import Inventory, InventoryChangeType, InventoryHistory
 from app.database.session import SessionLocal
 from app.schemas.inventory import InventoryEvent, InventoryOperation
+from app.services.exceptions import InventoryOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,10 @@ class InventoryTransientError(InventoryServiceError):
 
 class InventoryBusinessRuleError(InventoryServiceError):
     """Raised for non-retryable domain validation failures."""
+
+
+class InventoryProcessingStateError(InventoryBusinessRuleError):
+    """Raised when persisted processing state is inconsistent."""
 
 
 @dataclass(frozen=True)
@@ -56,6 +61,8 @@ class InventoryService:
     def process_event(self, event: InventoryEvent) -> InventoryProcessingResult:
         try:
             result = self._process_event_transactionally(event)
+        except InventoryOperationError as exc:
+            raise InventoryBusinessRuleError(str(exc)) from exc
         except InventoryBusinessRuleError:
             raise
         except OperationalError as exc:
@@ -87,7 +94,9 @@ class InventoryService:
                 if duplicate is not None:
                     inventory = session.get(Inventory, duplicate.inventory_id)
                     if inventory is None:
-                        raise InventoryTransientError("duplicate history found without inventory")
+                        raise InventoryProcessingStateError(
+                            "duplicate history found without inventory"
+                        )
                     return InventoryProcessingResult(
                         event_id=source_event_id,
                         product_id=event.product_id,
@@ -122,7 +131,7 @@ class InventoryService:
                 quantity_after = quantity_before + quantity_delta
 
                 if quantity_after < 0:
-                    raise InventoryBusinessRuleError(
+                    raise InventoryOperationError(
                         "inventory quantity cannot be negative after applying event"
                     )
 
@@ -158,7 +167,7 @@ class InventoryService:
             return event.quantity, InventoryChangeType.RETURN
         if event.operation == InventoryOperation.MANUAL_ADJUSTMENT:
             return event.quantity, InventoryChangeType.ADJUSTMENT
-        raise InventoryBusinessRuleError(f"unsupported operation: {event.operation.value}")
+        raise InventoryOperationError(f"unsupported operation: {event.operation.value}")
 
     def _sync_cache(self, result: InventoryProcessingResult) -> None:
         cache_key = f"inventory:{result.store_id}:{result.product_id}"

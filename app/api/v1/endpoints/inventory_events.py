@@ -79,6 +79,8 @@ async def publish_inventory_event(
             "inventory_event_publish_unavailable",
             extra={
                 "event_id": str(event.event_id),
+                "product_id": event.product_id,
+                "store_id": event.store_id,
                 "request_id": getattr(request.state, "request_id", "unknown"),
             },
         )

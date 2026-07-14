@@ -27,6 +27,9 @@ class JsonLogFormatter(logging.Formatter):
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,
+            "event_id": None,
+            "product_id": None,
+            "store_id": None,
         }
 
         request_id = get_request_id()

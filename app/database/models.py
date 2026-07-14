@@ -44,6 +44,10 @@ class AnomalyStatus(str, Enum):
     RESOLVED = "resolved"
 
 
+class ProcessedEventStatus(str, Enum):
+    PROCESSED = "processed"
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -163,6 +167,24 @@ class Anomaly(Base):
     inventory: Mapped[Inventory] = relationship(back_populates="anomalies")
 
 
+class ProcessedEvent(Base):
+    __tablename__ = "processed_events"
+    __table_args__ = (
+        Index("ix_processed_events_processed_at", "processed_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    product_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    store_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[ProcessedEventStatus] = mapped_column(
+        SqlEnum(ProcessedEventStatus, name="processed_event_status"),
+        nullable=False,
+        default=ProcessedEventStatus.PROCESSED,
+    )
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 __all__ = [
     "Anomaly",
     "AnomalySeverity",
@@ -170,5 +192,7 @@ __all__ = [
     "Inventory",
     "InventoryChangeType",
     "InventoryHistory",
+    "ProcessedEvent",
+    "ProcessedEventStatus",
     "Sales",
 ]

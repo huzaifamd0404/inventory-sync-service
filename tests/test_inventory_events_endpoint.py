@@ -44,3 +44,45 @@ def test_publish_inventory_event_endpoint_returns_event_id() -> None:
     assert stub_service.published_event.store_id == "STORE-NYC"
     assert stub_service.published_event.operation.value == "MANUAL_ADJUSTMENT"
     assert str(stub_service.published_event.event_id) == payload["event_id"]
+
+
+def test_publish_inventory_event_rejects_invalid_identifier_format() -> None:
+    stub_service = StubInventoryEventService()
+    app.dependency_overrides[get_inventory_event_service] = lambda: stub_service
+
+    response = client.post(
+        "/api/v1/inventory/events",
+        json={
+            "product_id": "SKU 55",
+            "store_id": "STORE-NYC",
+            "operation": "RESTOCK",
+            "quantity": 5,
+            "timestamp": "2026-07-09T11:00:00Z",
+        },
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert stub_service.published_event is None
+
+
+def test_publish_inventory_event_rejects_out_of_range_quantity() -> None:
+    stub_service = StubInventoryEventService()
+    app.dependency_overrides[get_inventory_event_service] = lambda: stub_service
+
+    response = client.post(
+        "/api/v1/inventory/events",
+        json={
+            "product_id": "SKU-55",
+            "store_id": "STORE-NYC",
+            "operation": "RESTOCK",
+            "quantity": 1000001,
+            "timestamp": "2026-07-09T11:00:00Z",
+        },
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert stub_service.published_event is None

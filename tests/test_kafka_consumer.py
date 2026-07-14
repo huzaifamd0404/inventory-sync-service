@@ -8,9 +8,12 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.consumer.kafka_consumer import KafkaInventoryConsumer
+from app.consumer.inventory_event_validator import InventoryEventValidator
 from app.database.base import Base
-from app.database.models import Inventory, InventoryHistory
+from app.database.models import Inventory, InventoryHistory, ProcessedEvent
 from app.schemas.inventory import InventoryEvent
+from app.services.exceptions import DuplicateEvent
+from app.services.processed_event_service import ProcessedEventService
 from app.services.inventory_service import (
     InventoryBusinessRuleError,
     InventoryProcessingResult,
@@ -38,6 +41,26 @@ class StubInventoryService:
         if isinstance(effect, Exception):
             raise effect
         return effect
+
+
+class StubProcessedEventService:
+    def __init__(self, duplicate: bool = False) -> None:
+        self.duplicate = duplicate
+        self.assert_calls = 0
+        self.mark_calls = 0
+
+    def assert_not_processed(self, _: str) -> None:
+        self.assert_calls += 1
+        if self.duplicate:
+            raise DuplicateEvent("duplicate")
+
+    def mark_processed(self, _: InventoryEvent) -> None:
+        self.mark_calls += 1
+
+
+class PassThroughValidator(InventoryEventValidator):
+    def validate(self, event: InventoryEvent) -> InventoryEvent:
+        return event
 
 
 def make_message(payload: dict[str, object]) -> SimpleNamespace:
@@ -79,6 +102,8 @@ def test_process_record_commits_after_successful_processing() -> None:
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
+        processed_event_service=StubProcessedEventService(),
+        event_validator=PassThroughValidator(),
         max_attempts=3,
         retry_backoff_seconds=0,
     )
@@ -101,6 +126,8 @@ def test_process_record_retries_transient_failure_then_commits() -> None:
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
+        processed_event_service=StubProcessedEventService(),
+        event_validator=PassThroughValidator(),
         max_attempts=3,
         retry_backoff_seconds=0,
     )
@@ -123,6 +150,8 @@ def test_process_record_does_not_commit_when_transient_retries_exhausted() -> No
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
+        processed_event_service=StubProcessedEventService(),
+        event_validator=PassThroughValidator(),
         max_attempts=3,
         retry_backoff_seconds=0,
     )
@@ -139,6 +168,8 @@ def test_process_record_commits_and_discards_non_retryable_event() -> None:
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
+        processed_event_service=StubProcessedEventService(),
+        event_validator=PassThroughValidator(),
         max_attempts=3,
         retry_backoff_seconds=0,
     )
@@ -155,6 +186,8 @@ def test_process_record_commits_invalid_payload_to_skip_poison_messages() -> Non
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
+        processed_event_service=StubProcessedEventService(),
+        event_validator=PassThroughValidator(),
         max_attempts=3,
         retry_backoff_seconds=0,
     )
@@ -170,6 +203,26 @@ def test_process_record_commits_invalid_payload_to_skip_poison_messages() -> Non
 
     consumer.process_record(make_message(invalid_payload))
 
+    assert service.calls == 0
+    assert consumer_client.commit_calls == 1
+
+
+def test_process_record_skips_duplicate_event_and_commits() -> None:
+    consumer_client = DummyConsumer()
+    service = StubInventoryService([make_result()])
+    duplicate_checker = StubProcessedEventService(duplicate=True)
+    consumer = KafkaInventoryConsumer(
+        consumer=consumer_client,
+        inventory_service=service,
+        processed_event_service=duplicate_checker,
+        event_validator=PassThroughValidator(),
+        max_attempts=3,
+        retry_backoff_seconds=0,
+    )
+
+    consumer.process_record(make_message(make_payload()))
+
+    assert duplicate_checker.assert_calls == 1
     assert service.calls == 0
     assert consumer_client.commit_calls == 1
 
@@ -195,6 +248,8 @@ def test_process_record_integration_with_inventory_service_updates_db_and_commit
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=inventory_service,
+        processed_event_service=ProcessedEventService(session_factory=session_factory),
+        event_validator=PassThroughValidator(),
         max_attempts=2,
         retry_backoff_seconds=0,
     )
@@ -209,13 +264,16 @@ def test_process_record_integration_with_inventory_service_updates_db_and_commit
     }
 
     consumer.process_record(make_message(payload))
+    consumer.process_record(make_message(payload))
 
     with session_factory() as session:
         inventory = session.execute(select(Inventory)).scalar_one()
         history = session.execute(select(InventoryHistory)).scalars().all()
+        processed_events = session.execute(select(ProcessedEvent)).scalars().all()
 
     assert inventory.sku == "SKU-500"
     assert inventory.quantity == 9
     assert len(history) == 1
-    assert consumer_client.commit_calls == 1
+    assert len(processed_events) == 1
+    assert consumer_client.commit_calls == 2
     assert "inventory:STORE-Z:SKU-500" in redis_client.values

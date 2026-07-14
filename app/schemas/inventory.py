@@ -24,17 +24,21 @@ class InventoryEventCreate(BaseModel):
     product_id: str = Field(
         min_length=1,
         max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_\-:.]*$",
         description="Product SKU or canonical inventory identifier.",
         examples=["SKU-100"],
     )
     store_id: str = Field(
         min_length=1,
         max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_\-:.]*$",
         description="Store or warehouse identifier.",
         examples=["STORE-NYC"],
     )
     operation: InventoryOperation
     quantity: int = Field(
+        ge=-1_000_000,
+        le=1_000_000,
         description=(
             "Operation quantity. SALE/RESTOCK/RETURN require positive values; "
             "MANUAL_ADJUSTMENT supports positive or negative non-zero values."
@@ -66,6 +70,13 @@ class InventoryEventCreate(BaseModel):
     def validate_timestamp_is_timezone_aware(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
+        return value
+
+    @field_validator("product_id", "store_id")
+    @classmethod
+    def validate_identifier_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("identifier must not be blank")
         return value
 
 
