@@ -19,7 +19,11 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-processed_event_status = sa.Enum("processed", name="processed_event_status")
+processed_event_status = sa.Enum("processed", name="processed_event_status", create_constraint=False)
+
+_pg_processed_event_status = postgresql.ENUM(
+    "processed", name="processed_event_status", create_type=False
+)
 
 
 def upgrade() -> None:
@@ -31,7 +35,7 @@ def upgrade() -> None:
         sa.Column("event_id", sa.String(length=128), nullable=False),
         sa.Column("product_id", sa.String(length=128), nullable=False),
         sa.Column("store_id", sa.String(length=128), nullable=False),
-        sa.Column("status", processed_event_status, nullable=False, server_default="processed"),
+        sa.Column("status", _pg_processed_event_status, nullable=False, server_default="processed"),
         sa.Column(
             "processed_at",
             sa.DateTime(timezone=True),

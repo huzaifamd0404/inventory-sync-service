@@ -26,6 +26,7 @@ inventory_change_type = sa.Enum(
     "restock",
     "return",
     name="inventory_change_type",
+    create_constraint=False,
 )
 
 anomaly_severity = sa.Enum(
@@ -34,6 +35,7 @@ anomaly_severity = sa.Enum(
     "high",
     "critical",
     name="anomaly_severity",
+    create_constraint=False,
 )
 
 anomaly_status = sa.Enum(
@@ -41,6 +43,23 @@ anomaly_status = sa.Enum(
     "investigating",
     "resolved",
     name="anomaly_status",
+    create_constraint=False,
+)
+
+# Using postgresql.ENUM with create_type=False prevents SQLAlchemy from
+# emitting CREATE TYPE again during create_table; types are created
+# explicitly in upgrade() with checkfirst=True.
+_pg_change_type = postgresql.ENUM(
+    "sync", "adjustment", "sale", "restock", "return",
+    name="inventory_change_type", create_type=False,
+)
+_pg_severity = postgresql.ENUM(
+    "low", "medium", "high", "critical",
+    name="anomaly_severity", create_type=False,
+)
+_pg_status = postgresql.ENUM(
+    "open", "investigating", "resolved",
+    name="anomaly_status", create_type=False,
 )
 
 
@@ -85,9 +104,9 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("inventory_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("anomaly_type", sa.String(length=64), nullable=False),
-        sa.Column("severity", anomaly_severity, nullable=False),
+        sa.Column("severity", _pg_severity, nullable=False),
         sa.Column("score", sa.Float(), nullable=False),
-        sa.Column("status", anomaly_status, nullable=False, server_default="open"),
+        sa.Column("status", _pg_status, nullable=False, server_default="open"),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column(
             "detected_at",
@@ -118,7 +137,7 @@ def upgrade() -> None:
         "inventory_history",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("inventory_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("change_type", inventory_change_type, nullable=False),
+        sa.Column("change_type", _pg_change_type, nullable=False),
         sa.Column("quantity_before", sa.Integer(), nullable=False),
         sa.Column("quantity_after", sa.Integer(), nullable=False),
         sa.Column("quantity_delta", sa.Integer(), nullable=False),
