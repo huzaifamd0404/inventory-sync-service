@@ -185,10 +185,35 @@ class ProcessedEvent(Base):
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class FailedEvent(Base):
+    __tablename__ = "failed_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_topic",
+            "source_partition",
+            "source_offset",
+            name="uq_failed_events_source_location",
+        ),
+        Index("ix_failed_events_event_id", "event_id"),
+        Index("ix_failed_events_failed_at", "failed_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_topic: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_partition: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_offset: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    failure_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 __all__ = [
     "Anomaly",
     "AnomalySeverity",
     "AnomalyStatus",
+    "FailedEvent",
     "Inventory",
     "InventoryChangeType",
     "InventoryHistory",

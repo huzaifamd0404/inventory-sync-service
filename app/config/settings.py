@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = Field(default="localhost:9092")
     kafka_topic_inventory_events: str = Field(default="inventory.events")
     kafka_topic_inventory_updates: str = Field(default="inventory_updates")
+    kafka_topic_inventory_dlq: str = Field(default="inventory_dlq")
     kafka_client_id: str = Field(default="inventory-sync-service")
     kafka_producer_retries: int = Field(default=5, ge=0)
     kafka_producer_retry_backoff_ms: int = Field(default=200, ge=0)
@@ -42,7 +43,9 @@ class Settings(BaseSettings):
     kafka_publish_timeout_seconds: int = Field(default=10, ge=1)
     kafka_consumer_group_id: str = Field(default="inventory-sync-consumer")
     kafka_consumer_max_attempts: int = Field(default=3, ge=1)
-    kafka_consumer_retry_backoff_seconds: float = Field(default=0.5, ge=0)
+    kafka_consumer_retry_initial_backoff_seconds: float = Field(default=0.5, ge=0)
+    kafka_consumer_retry_backoff_multiplier: float = Field(default=2.0, ge=1.0)
+    kafka_consumer_retry_max_backoff_seconds: float = Field(default=30.0, ge=0)
 
     enable_dependency_health_checks: bool = Field(default=False)
 

@@ -10,9 +10,11 @@ from sqlalchemy.orm import sessionmaker
 from app.consumer.kafka_consumer import KafkaInventoryConsumer
 from app.consumer.inventory_event_validator import InventoryEventValidator
 from app.database.base import Base
-from app.database.models import Inventory, InventoryHistory, ProcessedEvent
+from app.database.models import FailedEvent, Inventory, InventoryHistory, ProcessedEvent
+from app.producer.dlq_producer import KafkaDlqPublishError
 from app.schemas.inventory import InventoryEvent
 from app.services.exceptions import DuplicateEvent
+from app.services.failed_event_service import FailedEventService
 from app.services.processed_event_service import ProcessedEventService
 from app.services.inventory_service import (
     InventoryBusinessRuleError,
@@ -20,6 +22,7 @@ from app.services.inventory_service import (
     InventoryService,
     InventoryTransientError,
 )
+from app.services.retry_service import RetryService
 
 
 class DummyConsumer:
@@ -56,6 +59,36 @@ class StubProcessedEventService:
 
     def mark_processed(self, _: InventoryEvent) -> None:
         self.mark_calls += 1
+
+
+class StubFailedEvent:
+    def __init__(self) -> None:
+        self.id = UUID("8db822f7-3f8f-458c-b34b-3b7c93b3385a")
+
+
+class StubFailedEventService:
+    def __init__(self, should_fail: bool = False) -> None:
+        self.should_fail = should_fail
+        self.calls = 0
+
+    def record_failure(self, **_: object) -> StubFailedEvent:
+        self.calls += 1
+        if self.should_fail:
+            raise InventoryTransientError("failed to persist")
+        return StubFailedEvent()
+
+
+class StubDlqPublisher:
+    def __init__(self, should_fail: bool = False) -> None:
+        self.should_fail = should_fail
+        self.calls = 0
+        self.last_message: dict[str, object] | None = None
+
+    def publish_failed_event(self, **kwargs: object) -> None:
+        self.calls += 1
+        self.last_message = kwargs
+        if self.should_fail:
+            raise KafkaDlqPublishError("dlq unavailable")
 
 
 class PassThroughValidator(InventoryEventValidator):
@@ -99,19 +132,29 @@ def make_payload() -> dict[str, object]:
 def test_process_record_commits_after_successful_processing() -> None:
     consumer_client = DummyConsumer()
     service = StubInventoryService([make_result()])
+    failed_event_service = StubFailedEventService()
+    dlq_publisher = StubDlqPublisher()
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
         processed_event_service=StubProcessedEventService(),
+        failed_event_service=failed_event_service,
+        dlq_publisher=dlq_publisher,
         event_validator=PassThroughValidator(),
-        max_attempts=3,
-        retry_backoff_seconds=0,
+        retry_service=RetryService(
+            max_attempts=3,
+            initial_backoff_seconds=0,
+            backoff_multiplier=2,
+            max_backoff_seconds=0,
+        ),
     )
 
     consumer.process_record(make_message(make_payload()))
 
     assert service.calls == 1
     assert consumer_client.commit_calls == 1
+    assert failed_event_service.calls == 0
+    assert dlq_publisher.calls == 0
 
 
 def test_process_record_retries_transient_failure_then_commits() -> None:
@@ -123,22 +166,32 @@ def test_process_record_retries_transient_failure_then_commits() -> None:
             make_result(),
         ]
     )
+    failed_event_service = StubFailedEventService()
+    dlq_publisher = StubDlqPublisher()
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
         processed_event_service=StubProcessedEventService(),
+        failed_event_service=failed_event_service,
+        dlq_publisher=dlq_publisher,
         event_validator=PassThroughValidator(),
-        max_attempts=3,
-        retry_backoff_seconds=0,
+        retry_service=RetryService(
+            max_attempts=3,
+            initial_backoff_seconds=0,
+            backoff_multiplier=2,
+            max_backoff_seconds=0,
+        ),
     )
 
     consumer.process_record(make_message(make_payload()))
 
     assert service.calls == 3
     assert consumer_client.commit_calls == 1
+    assert failed_event_service.calls == 0
+    assert dlq_publisher.calls == 0
 
 
-def test_process_record_does_not_commit_when_transient_retries_exhausted() -> None:
+def test_process_record_sends_to_dlq_and_commits_when_transient_retries_exhausted() -> None:
     consumer_client = DummyConsumer()
     service = StubInventoryService(
         [
@@ -147,49 +200,77 @@ def test_process_record_does_not_commit_when_transient_retries_exhausted() -> No
             InventoryTransientError("db timeout"),
         ]
     )
+    failed_event_service = StubFailedEventService()
+    dlq_publisher = StubDlqPublisher()
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
         processed_event_service=StubProcessedEventService(),
+        failed_event_service=failed_event_service,
+        dlq_publisher=dlq_publisher,
         event_validator=PassThroughValidator(),
-        max_attempts=3,
-        retry_backoff_seconds=0,
+        retry_service=RetryService(
+            max_attempts=3,
+            initial_backoff_seconds=0,
+            backoff_multiplier=2,
+            max_backoff_seconds=0,
+        ),
     )
 
     consumer.process_record(make_message(make_payload()))
 
     assert service.calls == 3
-    assert consumer_client.commit_calls == 0
+    assert failed_event_service.calls == 1
+    assert dlq_publisher.calls == 1
+    assert consumer_client.commit_calls == 1
 
 
 def test_process_record_commits_and_discards_non_retryable_event() -> None:
     consumer_client = DummyConsumer()
     service = StubInventoryService([InventoryBusinessRuleError("negative quantity")])
+    failed_event_service = StubFailedEventService()
+    dlq_publisher = StubDlqPublisher()
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
         processed_event_service=StubProcessedEventService(),
+        failed_event_service=failed_event_service,
+        dlq_publisher=dlq_publisher,
         event_validator=PassThroughValidator(),
-        max_attempts=3,
-        retry_backoff_seconds=0,
+        retry_service=RetryService(
+            max_attempts=3,
+            initial_backoff_seconds=0,
+            backoff_multiplier=2,
+            max_backoff_seconds=0,
+        ),
     )
 
     consumer.process_record(make_message(make_payload()))
 
     assert service.calls == 1
+    assert failed_event_service.calls == 1
+    assert dlq_publisher.calls == 1
     assert consumer_client.commit_calls == 1
 
 
 def test_process_record_commits_invalid_payload_to_skip_poison_messages() -> None:
     consumer_client = DummyConsumer()
     service = StubInventoryService([make_result()])
+    failed_event_service = StubFailedEventService()
+    dlq_publisher = StubDlqPublisher()
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
         processed_event_service=StubProcessedEventService(),
+        failed_event_service=failed_event_service,
+        dlq_publisher=dlq_publisher,
         event_validator=PassThroughValidator(),
-        max_attempts=3,
-        retry_backoff_seconds=0,
+        retry_service=RetryService(
+            max_attempts=3,
+            initial_backoff_seconds=0,
+            backoff_multiplier=2,
+            max_backoff_seconds=0,
+        ),
     )
 
     invalid_payload = {
@@ -204,6 +285,8 @@ def test_process_record_commits_invalid_payload_to_skip_poison_messages() -> Non
     consumer.process_record(make_message(invalid_payload))
 
     assert service.calls == 0
+    assert failed_event_service.calls == 1
+    assert dlq_publisher.calls == 1
     assert consumer_client.commit_calls == 1
 
 
@@ -211,20 +294,57 @@ def test_process_record_skips_duplicate_event_and_commits() -> None:
     consumer_client = DummyConsumer()
     service = StubInventoryService([make_result()])
     duplicate_checker = StubProcessedEventService(duplicate=True)
+    failed_event_service = StubFailedEventService()
+    dlq_publisher = StubDlqPublisher()
     consumer = KafkaInventoryConsumer(
         consumer=consumer_client,
         inventory_service=service,
         processed_event_service=duplicate_checker,
+        failed_event_service=failed_event_service,
+        dlq_publisher=dlq_publisher,
         event_validator=PassThroughValidator(),
-        max_attempts=3,
-        retry_backoff_seconds=0,
+        retry_service=RetryService(
+            max_attempts=3,
+            initial_backoff_seconds=0,
+            backoff_multiplier=2,
+            max_backoff_seconds=0,
+        ),
     )
 
     consumer.process_record(make_message(make_payload()))
 
     assert duplicate_checker.assert_calls == 1
     assert service.calls == 0
+    assert failed_event_service.calls == 0
+    assert dlq_publisher.calls == 0
     assert consumer_client.commit_calls == 1
+
+
+def test_process_record_does_not_commit_when_dlq_publish_fails() -> None:
+    consumer_client = DummyConsumer()
+    service = StubInventoryService([InventoryBusinessRuleError("invalid")])
+    failed_event_service = StubFailedEventService()
+    dlq_publisher = StubDlqPublisher(should_fail=True)
+    consumer = KafkaInventoryConsumer(
+        consumer=consumer_client,
+        inventory_service=service,
+        processed_event_service=StubProcessedEventService(),
+        failed_event_service=failed_event_service,
+        dlq_publisher=dlq_publisher,
+        event_validator=PassThroughValidator(),
+        retry_service=RetryService(
+            max_attempts=2,
+            initial_backoff_seconds=0,
+            backoff_multiplier=2,
+            max_backoff_seconds=0,
+        ),
+    )
+
+    consumer.process_record(make_message(make_payload()))
+
+    assert failed_event_service.calls == 1
+    assert dlq_publisher.calls == 1
+    assert consumer_client.commit_calls == 0
 
 
 def test_process_record_integration_with_inventory_service_updates_db_and_commits() -> None:
@@ -249,9 +369,15 @@ def test_process_record_integration_with_inventory_service_updates_db_and_commit
         consumer=consumer_client,
         inventory_service=inventory_service,
         processed_event_service=ProcessedEventService(session_factory=session_factory),
+        failed_event_service=FailedEventService(session_factory=session_factory),
+        dlq_publisher=StubDlqPublisher(),
         event_validator=PassThroughValidator(),
-        max_attempts=2,
-        retry_backoff_seconds=0,
+        retry_service=RetryService(
+            max_attempts=2,
+            initial_backoff_seconds=0,
+            backoff_multiplier=2,
+            max_backoff_seconds=0,
+        ),
     )
 
     payload = {
@@ -277,3 +403,42 @@ def test_process_record_integration_with_inventory_service_updates_db_and_commit
     assert len(processed_events) == 1
     assert consumer_client.commit_calls == 2
     assert "inventory:STORE-Z:SKU-500" in redis_client.values
+
+
+def test_process_record_integration_persists_failed_event_and_publishes_dlq() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+
+    class AlwaysTransientInventoryService:
+        def process_event(self, _: InventoryEvent) -> InventoryProcessingResult:
+            raise InventoryTransientError("db timeout")
+
+    dlq_publisher = StubDlqPublisher()
+    consumer = KafkaInventoryConsumer(
+        consumer=DummyConsumer(),
+        inventory_service=AlwaysTransientInventoryService(),
+        processed_event_service=ProcessedEventService(session_factory=session_factory),
+        failed_event_service=FailedEventService(session_factory=session_factory),
+        dlq_publisher=dlq_publisher,
+        event_validator=PassThroughValidator(),
+        retry_service=RetryService(
+            max_attempts=3,
+            initial_backoff_seconds=0,
+            backoff_multiplier=2,
+            max_backoff_seconds=0,
+        ),
+    )
+
+    consumer.process_record(make_message(make_payload()))
+
+    with session_factory() as session:
+        failed = session.execute(select(FailedEvent)).scalars().all()
+
+    assert len(failed) == 1
+    assert failed[0].retry_count == 3
+    assert dlq_publisher.calls == 1
+    assert dlq_publisher.last_message is not None
+    assert dlq_publisher.last_message["retry_count"] == 3

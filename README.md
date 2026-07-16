@@ -122,6 +122,9 @@ Integration tests require Kafka, PostgreSQL, and Redis to be reachable.
 
 - JSON structured logs with request correlation (`x-request-id`).
 - Global exception handlers return consistent error payloads.
+- Consumer resilience includes configurable exponential backoff retries for transient failures.
+- Permanently failed events are persisted in `failed_events` and published to the `inventory_dlq` Kafka topic.
+- Kafka offsets are committed only after successful processing or successful DLQ publishing.
 - Docker Compose health checks for API/PostgreSQL/Redis/Kafka/ZooKeeper.
 - Persistent volumes enabled for PostgreSQL, Redis, Kafka, and ZooKeeper.
 

@@ -1,5 +1,6 @@
 """Application services package."""
 
+from app.services.failed_event_service import FailedEventService, get_failed_event_service
 from app.services.inventory_event_service import InventoryEventService, InventoryEventServiceError
 from app.services.inventory_service import (
     InventoryBusinessRuleError,
@@ -9,8 +10,10 @@ from app.services.inventory_service import (
     InventoryTransientError,
     get_inventory_service,
 )
+from app.services.retry_service import RetryService
 
 __all__ = [
+    "FailedEventService",
     "InventoryBusinessRuleError",
     "InventoryEventService",
     "InventoryEventServiceError",
@@ -18,5 +21,7 @@ __all__ = [
     "InventoryService",
     "InventoryServiceError",
     "InventoryTransientError",
+    "RetryService",
+    "get_failed_event_service",
     "get_inventory_service",
 ]

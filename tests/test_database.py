@@ -17,7 +17,14 @@ def test_create_all_contains_expected_tables() -> None:
     Base.metadata.create_all(engine)
 
     table_names = set(inspect(engine).get_table_names())
-    assert {"inventory", "inventory_history", "sales", "anomalies"}.issubset(table_names)
+    assert {
+        "anomalies",
+        "failed_events",
+        "inventory",
+        "inventory_history",
+        "processed_events",
+        "sales",
+    }.issubset(table_names)
 
 
 def test_inventory_relationship_wiring() -> None:
