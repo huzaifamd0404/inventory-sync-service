@@ -7,7 +7,7 @@ Production-ready FastAPI backend for real-time inventory synchronization. Week 1
 The service follows Clean Architecture boundaries and SOLID-friendly module ownership:
 
 - `app/api`: Transport layer (FastAPI routers, dependency wiring, error mapping).
-- `app/services`: Application use cases (`InventoryEventService`, `InventoryService`, `HealthService`).
+- `app/services`: Application use cases (`InventoryEventService`, `InventoryService`, `HealthService`, `ReconciliationService`).
 - `app/producer` and `app/consumer`: Kafka adapters isolated from business logic.
 - `app/database`: SQLAlchemy engine/session and persistence models.
 - `app/cache`: Redis adapter.
@@ -91,6 +91,35 @@ inventory-sync-service/
   "event_id": "0e9f4d70-98a3-41f3-b9bc-7439f4ac0f57"
 }
 ```
+
+### Reconcile Inventory
+
+Derives the expected quantity from the full audit history (`inventory_history` deltas), compares it
+with the live `inventory` snapshot, and returns the reconciliation result.
+A new record is written to `reconciliation_records` **only** when the status or difference changes.
+
+- Endpoint: `GET /api/v1/reconciliation/{store_id}/{product_id}`
+- Response (`200 OK`) example:
+
+```json
+{
+  "store_id": "STORE-NYC",
+  "product_id": "SKU-100",
+  "expected_quantity": 42,
+  "actual_quantity": 40,
+  "difference": -2,
+  "status": "mismatch",
+  "reconciled_at": "2026-07-17T10:00:00Z"
+}
+```
+
+Possible `status` values:
+
+| Value      | Meaning                                                        |
+|------------|----------------------------------------------------------------|
+| `match`    | Actual quantity equals the sum of all history deltas.          |
+| `mismatch` | Actual quantity diverges from history-derived expectation.     |
+| `missing`  | No inventory record exists for the given store/product pair.   |
 
 ## Testing
 

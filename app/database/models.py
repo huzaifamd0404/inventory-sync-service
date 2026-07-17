@@ -169,9 +169,7 @@ class Anomaly(Base):
 
 class ProcessedEvent(Base):
     __tablename__ = "processed_events"
-    __table_args__ = (
-        Index("ix_processed_events_processed_at", "processed_at"),
-    )
+    __table_args__ = (Index("ix_processed_events_processed_at", "processed_at"),)
 
     id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
     event_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
@@ -182,7 +180,9 @@ class ProcessedEvent(Base):
         nullable=False,
         default=ProcessedEventStatus.PROCESSED,
     )
-    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class FailedEvent(Base):
@@ -209,6 +209,41 @@ class FailedEvent(Base):
     failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ReconciliationStatus(str, Enum):
+    MATCH = "match"
+    MISMATCH = "mismatch"
+    MISSING = "missing"
+
+
+class ReconciliationRecord(TimestampMixin, Base):
+    """Persisted snapshot of a single reconciliation run for a product/store pair."""
+
+    __tablename__ = "reconciliation_records"
+    __table_args__ = (
+        Index(
+            "ix_reconciliation_records_store_product_at",
+            "store_id",
+            "product_id",
+            "reconciled_at",
+        ),
+        Index("ix_reconciliation_records_status", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    store_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    product_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    expected_quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    actual_quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    difference: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[ReconciliationStatus] = mapped_column(
+        SqlEnum(ReconciliationStatus, name="reconciliation_status"),
+        nullable=False,
+    )
+    reconciled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 __all__ = [
     "Anomaly",
     "AnomalySeverity",
@@ -219,5 +254,7 @@ __all__ = [
     "InventoryHistory",
     "ProcessedEvent",
     "ProcessedEventStatus",
+    "ReconciliationRecord",
+    "ReconciliationStatus",
     "Sales",
 ]
