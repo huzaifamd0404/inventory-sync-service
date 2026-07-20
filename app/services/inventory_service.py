@@ -196,6 +196,64 @@ class InventoryService:
             )
             raise InventoryTransientError("redis synchronization failed") from exc
 
+    def batch_sync_cache(self, results: list[InventoryProcessingResult]) -> tuple[int, int]:
+        """
+        Batch sync multiple inventory results to Redis cache.
+
+        Uses pipeline operations for efficiency and reduced round trips.
+
+        Args:
+            results: List of inventory processing results to sync
+
+        Returns:
+            Tuple of (successful_syncs, failed_syncs)
+        """
+        if not results:
+            return 0, 0
+
+        try:
+            from app.cache.redis_batch_client import CacheOperation, get_redis_batch_client
+
+            batch_client = get_redis_batch_client(self._redis_client)
+            operations = []
+
+            for result in results:
+                cache_key = f"inventory:{result.store_id}:{result.product_id}"
+                payload = json.dumps(
+                    {
+                        "product_id": result.product_id,
+                        "store_id": result.store_id,
+                        "quantity": result.quantity_after,
+                        "operation": result.operation,
+                        "source_event_id": result.event_id,
+                        "synced_at": datetime.now(UTC).isoformat(),
+                    },
+                    separators=(",", ":"),
+                )
+                operations.append(CacheOperation(key=cache_key, value=payload))
+
+            successful, failed = batch_client.batch_set(operations)
+
+            if failed > 0:
+                logger.warning(
+                    "inventory_service_batch_cache_sync_partial_failure",
+                    extra={
+                        "batch_size": len(results),
+                        "failed": failed,
+                    },
+                )
+
+            return successful, failed
+        except RedisError as exc:
+            logger.exception(
+                "inventory_service_batch_cache_sync_failed",
+                extra={
+                    "batch_size": len(results),
+                    "error": str(exc),
+                },
+            )
+            raise InventoryTransientError("batch redis synchronization failed") from exc
+
 
 def get_inventory_service() -> InventoryService:
     return InventoryService(session_factory=SessionLocal, redis_client=get_redis_client())

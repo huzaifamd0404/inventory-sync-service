@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     kafka_consumer_retry_backoff_multiplier: float = Field(default=2.0, ge=1.0)
     kafka_consumer_retry_max_backoff_seconds: float = Field(default=30.0, ge=0)
 
+    # Batch processing configuration
+    batch_processing_enabled: bool = Field(default=True)
+    batch_size: int = Field(default=100, ge=1, le=10000)
+    batch_max_wait_ms: int = Field(default=5000, ge=1, le=60000)
+    kafka_consumer_poll_timeout_ms: int = Field(default=1000, ge=100, le=30000)
+
     enable_dependency_health_checks: bool = Field(default=False)
 
     @property
