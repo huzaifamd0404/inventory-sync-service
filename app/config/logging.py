@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 request_id_context: ContextVar[str | None] = ContextVar("request_id", default=None)
+trace_id_context: ContextVar[str | None] = ContextVar("trace_id", default=None)
 
 
 def set_request_id(request_id: str | None) -> None:
@@ -15,6 +16,14 @@ def set_request_id(request_id: str | None) -> None:
 
 def get_request_id() -> str | None:
     return request_id_context.get()
+
+
+def set_trace_id(trace_id: str | None) -> None:
+    trace_id_context.set(trace_id)
+
+
+def get_trace_id() -> str | None:
+    return trace_id_context.get()
 
 
 class JsonLogFormatter(logging.Formatter):
@@ -30,11 +39,17 @@ class JsonLogFormatter(logging.Formatter):
             "event_id": None,
             "product_id": None,
             "store_id": None,
+            "trace_id": None,
+            "processing_time": None,
         }
 
         request_id = get_request_id()
         if request_id:
             payload["request_id"] = request_id
+
+        trace_id = get_trace_id()
+        if trace_id:
+            payload["trace_id"] = trace_id
 
         for key, value in record.__dict__.items():
             if key.startswith("_"):

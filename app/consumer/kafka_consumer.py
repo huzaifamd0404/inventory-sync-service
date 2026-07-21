@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
+from time import perf_counter
 from typing import Any
 
 from kafka import KafkaConsumer
@@ -12,6 +13,14 @@ from pydantic import ValidationError
 
 from app.config.settings import Settings, get_settings
 from app.consumer.inventory_event_validator import InventoryEventValidator
+from app.observability.metrics import (
+    observe_processing_duration,
+    record_dlq_events,
+    record_duplicate_events,
+    record_failed_events,
+    record_processed_events,
+    record_retried_events,
+)
 from app.producer.dlq_producer import DeadLetterQueuePublisher, KafkaDlqProducer, KafkaDlqPublishError
 from app.schemas.inventory import InventoryEvent
 from app.services.exceptions import (
@@ -67,6 +76,7 @@ class KafkaInventoryConsumer:
         self._dlq_publisher = dlq_publisher
         self._event_validator = event_validator
         self._retry_service = retry_service
+        self._stop_requested = False
 
     @classmethod
     def from_settings(
@@ -102,10 +112,27 @@ class KafkaInventoryConsumer:
 
     def consume_forever(self) -> None:
         logger.info("kafka_inventory_consumer_started")
-        for message in self._consumer:
-            self.process_record(message)
+        try:
+            for message in self._consumer:
+                if self._stop_requested:
+                    logger.info("kafka_inventory_consumer_stop_requested")
+                    break
+                self.process_record(message)
+        finally:
+            self.close()
+
+    def stop(self) -> None:
+        self._stop_requested = True
+
+    def close(self) -> None:
+        try:
+            self._consumer.close()
+        except Exception:  # noqa: BLE001
+            logger.exception("kafka_inventory_consumer_close_failed")
 
     def process_record(self, message: ConsumerRecord) -> None:
+        started = perf_counter()
+        outcome = "failed"
         payload: object = message.value
         event = self._deserialize_message(message)
         if event is None:
@@ -116,6 +143,7 @@ class KafkaInventoryConsumer:
                 failure_reason="invalid_event_payload",
                 retry_count=0,
             )
+            observe_processing_duration(perf_counter() - started, outcome=outcome)
             return
 
         try:
@@ -155,7 +183,13 @@ class KafkaInventoryConsumer:
                     },
                 ),
             )
+            retry_count = retry_result.attempts - 1
+            if retry_count > 0:
+                record_retried_events(retry_count)
+
             self._commit_with_logging(message, reason="event_processed")
+            record_processed_events()
+            outcome = "processed"
             logger.info(
                 "inventory_event_processed",
                 extra={
@@ -168,10 +202,13 @@ class KafkaInventoryConsumer:
                     "quantity_after": result.quantity_after,
                     "quantity_delta": result.quantity_delta,
                     "duplicate": result.duplicate,
-                    "retry_count": retry_result.attempts - 1,
+                    "retry_count": retry_count,
+                    "processing_time": round((perf_counter() - started) * 1000, 2),
                 },
             )
         except DuplicateEvent:
+            record_duplicate_events()
+            outcome = "duplicate"
             logger.info(
                 "inventory_event_duplicate_skipped",
                 extra={**self._message_context(message), **self._event_context(event)},
@@ -206,6 +243,7 @@ class KafkaInventoryConsumer:
                 retry_count=self._retry_service.max_attempts,
             )
         except KafkaProcessingError:
+            outcome = "kafka_error"
             logger.exception(
                 "inventory_event_kafka_processing_failed",
                 extra={**self._message_context(message), **self._event_context(event)},
@@ -226,6 +264,8 @@ class KafkaInventoryConsumer:
                 failure_reason=f"unexpected_failure:{exc}",
                 retry_count=0,
             )
+        finally:
+            observe_processing_duration(perf_counter() - started, outcome=outcome)
 
     def _process_event_once(self, event: InventoryEvent) -> Any:
         self._processed_event_service.assert_not_processed(str(event.event_id))
@@ -243,6 +283,7 @@ class KafkaInventoryConsumer:
         retry_count: int,
     ) -> None:
         event_id = str(event.event_id) if event is not None else self._extract_event_id(payload)
+        record_failed_events()
 
         try:
             failed_event = self._failed_event_service.record_failure(
@@ -273,6 +314,7 @@ class KafkaInventoryConsumer:
                 failure_reason=failure_reason,
                 retry_count=retry_count,
             )
+            record_dlq_events()
             self._commit_with_logging(message, reason="failed_event_sent_to_dlq")
         except (InventoryTransientError, KafkaDlqPublishError):
             logger.exception(

@@ -8,7 +8,7 @@ from app.services.batch_processing_service import BatchProcessingService, get_ba
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/metrics", tags=["metrics"])
+router = APIRouter(prefix="/api/v1/metrics", tags=["metrics"])
 
 
 def get_batch_service() -> BatchProcessingService:

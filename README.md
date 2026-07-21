@@ -52,7 +52,10 @@ inventory-sync-service/
    - `docker compose up --build`
 3. Open:
    - API root: `http://localhost:8000/`
-   - Health: `http://localhost:8000/health`
+  - Health: `http://localhost:8000/health`
+  - Liveness: `http://localhost:8000/health/live`
+  - Readiness: `http://localhost:8000/health/ready`
+  - Prometheus: `http://localhost:8000/metrics`
    - Swagger: `http://localhost:8000/docs`
 
 ## Local Development
@@ -149,11 +152,17 @@ Integration tests require Kafka, PostgreSQL, and Redis to be reachable.
 
 ## Observability and Resilience
 
-- JSON structured logs with request correlation (`x-request-id`).
+- JSON structured logs with request and trace correlation (`x-request-id`, `x-trace-id`).
+- Structured event fields include `event_id`, `product_id`, and `processing_time` for ingestion and consumer logs.
+- Prometheus metrics endpoint at `GET /metrics`.
+- Business metrics include processed, failed, duplicate, retried, and DLQ events plus processing duration histogram.
+- Batch metrics API remains available at `GET /api/v1/metrics`.
+- Health probes include `GET /health`, `GET /health/live`, and `GET /health/ready` (returns `503` when not ready).
 - Global exception handlers return consistent error payloads.
 - Consumer resilience includes configurable exponential backoff retries for transient failures.
 - Permanently failed events are persisted in `failed_events` and published to the `inventory_dlq` Kafka topic.
 - Kafka offsets are committed only after successful processing or successful DLQ publishing.
+- Consumer worker now handles `SIGINT`/`SIGTERM` and stops gracefully.
 - Docker Compose health checks for API/PostgreSQL/Redis/Kafka/ZooKeeper.
 - Persistent volumes enabled for PostgreSQL, Redis, Kafka, and ZooKeeper.
 

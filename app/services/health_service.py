@@ -44,9 +44,28 @@ class HealthService:
         else:
             details["redis"] = "skipped"
 
-        status = (
-            "ok" if all(value in {"ok", "skipped"} for value in details.values()) else "degraded"
-        )
+        return self._build_health_response(details=details)
+
+    async def check_liveness(self) -> HealthResponse:
+        return self._build_health_response(details={"api": "ok"})
+
+    async def check_readiness(self) -> HealthResponse:
+        settings = get_settings()
+        details: dict[str, str] = {
+            "api": "ok",
+            "postgres": "ok" if self._database_checker.is_available() else "unavailable",
+        }
+
+        if settings.enable_dependency_health_checks:
+            details["redis"] = self._check_redis()
+        else:
+            details["redis"] = "skipped"
+
+        return self._build_health_response(details=details)
+
+    def _build_health_response(self, details: dict[str, str]) -> HealthResponse:
+        settings = get_settings()
+        status = "ok" if all(value in {"ok", "skipped"} for value in details.values()) else "degraded"
         return HealthResponse(
             status=status,
             service=settings.app_name,

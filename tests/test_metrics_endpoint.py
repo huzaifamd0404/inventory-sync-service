@@ -4,17 +4,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database.base import Base
 from app.main import app
-from app.models.batch import EventBatch
 from app.schemas.inventory import InventoryEvent, InventoryOperation
-from app.services.batch_processing_service import BatchProcessingService
-from app.services.inventory_service import InventoryService
 
 
 class FakeRedis:
@@ -234,3 +230,18 @@ class TestMetricsEndpoint:
         assert isinstance(last_updated, str)
         # Should be parseable as ISO format
         datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
+
+    def test_prometheus_metrics_endpoint_exposes_counters(self) -> None:
+        """Test that Prometheus scrape endpoint returns expected business metrics."""
+        client = TestClient(app)
+        response = client.get("/metrics")
+
+        assert response.status_code == 200
+        assert "text/plain" in response.headers["content-type"]
+        body = response.text
+        assert "inventory_events_processed_total" in body
+        assert "inventory_events_failed_total" in body
+        assert "inventory_events_duplicate_total" in body
+        assert "inventory_events_retried_total" in body
+        assert "inventory_events_dlq_total" in body
+        assert "inventory_event_processing_duration_seconds" in body

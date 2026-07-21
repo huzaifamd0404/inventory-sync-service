@@ -12,27 +12,24 @@ from pydantic import ValidationError
 
 from app.config.settings import Settings, get_settings
 from app.consumer.inventory_event_validator import InventoryEventValidator
-from app.consumer.kafka_consumer import KafkaInventoryConsumer, build_kafka_consumer
+from app.consumer.kafka_consumer import build_kafka_consumer
 from app.models.batch import BatchProcessingStatus
-from app.producer.dlq_producer import DeadLetterQueuePublisher, KafkaDlqProducer, KafkaDlqPublishError
+from app.observability.metrics import (
+    observe_processing_duration,
+    record_duplicate_events,
+    record_failed_events,
+    record_processed_events,
+)
+from app.producer.dlq_producer import DeadLetterQueuePublisher, KafkaDlqProducer
 from app.schemas.inventory import InventoryEvent
 from app.services.batch_processing_service import BatchProcessingService
-from app.services.exceptions import (
-    DuplicateEvent,
-    InvalidInventoryEvent,
-    KafkaProcessingError,
-)
+from app.services.exceptions import InvalidInventoryEvent
 from app.services.failed_event_service import FailedEventService, get_failed_event_service
 from app.services.processed_event_service import (
     ProcessedEventService,
     get_processed_event_service,
 )
-from app.services.inventory_service import (
-    InventoryBusinessRuleError,
-    InventoryService,
-    InventoryTransientError,
-    get_inventory_service,
-)
+from app.services.inventory_service import InventoryService, get_inventory_service
 from app.services.retry_service import RetryService
 
 logger = logging.getLogger(__name__)
@@ -92,6 +89,7 @@ class BatchKafkaInventoryConsumer:
         self._retry_service = retry_service
         self._settings = settings
         self._pending_commits: dict[tuple[str, int], int] = {}  # (topic, partition) -> offset
+        self._stop_requested = False
 
     @classmethod
     def from_settings(
@@ -173,7 +171,7 @@ class BatchKafkaInventoryConsumer:
         )
 
         try:
-            while True:
+            while not self._stop_requested:
                 # Poll for new messages with optimized timeout
                 messages = self._consumer.poll(
                     timeout_ms=self._settings.kafka_consumer_poll_timeout_ms,
@@ -188,7 +186,7 @@ class BatchKafkaInventoryConsumer:
                     continue
 
                 # Process all polled messages
-                for topic_partition, records in messages.items():
+                for _topic_partition, records in messages.items():
                     for message in records:
                         event = self._deserialize_message(message)
                         if event is not None:
@@ -202,15 +200,27 @@ class BatchKafkaInventoryConsumer:
                 batch = self._batch_service.flush_batch()
                 if batch is not None:
                     self._process_batch(batch)
+            logger.info("batch_kafka_consumer_stop_requested")
         except KeyboardInterrupt:
             logger.info("batch_kafka_consumer_interrupted")
-            self._consumer.close()
-        except Exception as exc:  # noqa: BLE001
+            self.close()
+        except Exception:  # noqa: BLE001
             logger.exception(
                 "batch_kafka_consumer_error",
             )
-            self._consumer.close()
+            self.close()
             raise
+        finally:
+            self.close()
+
+    def stop(self) -> None:
+        self._stop_requested = True
+
+    def close(self) -> None:
+        try:
+            self._consumer.close()
+        except Exception:  # noqa: BLE001
+            logger.exception("batch_kafka_consumer_close_failed")
 
     def _process_batch(self, batch) -> None:  # type: ignore
         """
@@ -243,9 +253,15 @@ class BatchKafkaInventoryConsumer:
                 "failed": result.failed_events,
                 "duplicates": result.duplicate_events,
                 "processing_time_ms": round(processing_time_ms, 2),
+                "processing_time": round(processing_time_ms, 2),
                 "status": result.status.value,
             },
         )
+
+        record_processed_events(result.successful_events)
+        record_failed_events(result.failed_events)
+        record_duplicate_events(result.duplicate_events)
+        observe_processing_duration(processing_time_ms / 1000.0, outcome=result.status.value)
 
         # Handle failures if needed (persist to DLQ, etc.)
         if result.status in (BatchProcessingStatus.FAILED, BatchProcessingStatus.PARTIAL_FAILURE):
@@ -265,7 +281,7 @@ class BatchKafkaInventoryConsumer:
                 "batch_kafka_consumer_offsets_committed",
                 extra={"batch_id": batch.batch_id},
             )
-        except KafkaError as exc:
+        except KafkaError:
             logger.exception(
                 "batch_kafka_consumer_commit_failed",
                 extra={"batch_id": batch.batch_id},

@@ -33,5 +33,8 @@ Core principles applied:
 - Retry policies are applied in producer and consumer adapters with configurable exponential backoff.
 - Failed-event handling is durable: `failed_events` table persists context and retry metadata for operational replay.
 - DLQ payloads include event metadata (`event_id`, `failure_reason`, `retry_count`, `timestamp`) and source Kafka coordinates.
-- Structured JSON logs include request and event context for observability.
-- Health checks expose dependency status and are used by Docker Compose and CI startup gates.
+- Structured JSON logs include request/trace correlation (`x-request-id`, `x-trace-id`) and event context.
+- Prometheus metrics at `GET /metrics` expose business counters and processing duration histograms.
+- Health probes expose liveness/readiness/dependency views via `GET /health/live`, `GET /health/ready`, and `GET /health`.
+- Consumer workers implement graceful shutdown on `SIGINT`/`SIGTERM` and close Kafka resources cleanly.
+- Health checks are used by Docker Compose and CI startup gates.
