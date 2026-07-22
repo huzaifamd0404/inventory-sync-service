@@ -7,19 +7,26 @@ Production-ready FastAPI backend for real-time inventory synchronization. Week 1
 The service follows Clean Architecture boundaries and SOLID-friendly module ownership:
 
 - `app/api`: Transport layer (FastAPI routers, dependency wiring, error mapping).
-- `app/services`: Application use cases (`InventoryEventService`, `InventoryService`, `HealthService`, `ReconciliationService`).
+- `app/services`: Application use cases (`InventoryEventService`, `InventoryService`, `SalesService`, `HealthService`, `ReconciliationService`).
 - `app/producer` and `app/consumer`: Kafka adapters isolated from business logic.
 - `app/database`: SQLAlchemy engine/session and persistence models.
 - `app/cache`: Redis adapter.
 - `app/schemas`: Pydantic contracts for request/response and docs.
 - `app/config`: Settings and JSON structured logging.
 
-Event flow:
+**Inventory event flow:**
 
 1. `POST /api/v1/inventory/events` validates payload and publishes to Kafka.
 2. Consumer reads Kafka message and executes `InventoryService.process_event`.
 3. Inventory state and history are written to PostgreSQL.
 4. Current inventory snapshot is synchronized to Redis.
+
+**Sales event flow:**
+
+1. `POST /api/v1/sales/events` validates payload and publishes to the `sales_events` Kafka topic.
+2. `KafkaSalesConsumer` reads the message and executes `SalesService.process_event`.
+3. Sales record is persisted in PostgreSQL; inventory quantity is atomically deducted in the same transaction.
+4. `GET /api/v1/sales/{store_id}/{product_id}` returns the aggregated sales summary.
 
 ## Project Structure
 
@@ -94,6 +101,65 @@ inventory-sync-service/
   "event_id": "0e9f4d70-98a3-41f3-b9bc-7439f4ac0f57"
 }
 ```
+
+### Publish Sales Event
+
+Records a sales transaction and publishes it to the `sales_events` Kafka topic for downstream
+persistence by the sales consumer.  The `sale_id` field is an **idempotency key** — submitting the
+same `sale_id` twice has no effect and returns the same response.
+
+- Endpoint: `POST /api/v1/sales/events`
+- Request body example:
+
+```json
+{
+  "sale_id": "ORDER-20260722-001",
+  "product_id": "SKU-100",
+  "store_id": "STORE-NYC",
+  "quantity_sold": 5,
+  "sale_price": "29.99",
+  "timestamp": "2026-07-22T10:00:00Z"
+}
+```
+
+- Response (`202 Accepted`) example:
+
+```json
+{
+  "event_id": "0e9f4d70-98a3-41f3-b9bc-7439f4ac0f57",
+  "sale_id": "ORDER-20260722-001"
+}
+```
+
+### Get Sales Summary
+
+Returns the aggregated sales summary for a product/store pair, including individual transaction
+records ordered by most recent first.
+
+- Endpoint: `GET /api/v1/sales/{store_id}/{product_id}`
+- Response (`200 OK`) example:
+
+```json
+{
+  "product_id": "SKU-100",
+  "store_id": "STORE-NYC",
+  "total_quantity_sold": 42,
+  "transaction_count": 10,
+  "total_revenue": "1259.58",
+  "sales": [
+    {
+      "id": "a1b2c3d4-...",
+      "inventory_id": "e5f6g7h8-...",
+      "quantity_sold": 5,
+      "sale_price": "29.99",
+      "external_sale_id": "ORDER-20260722-001",
+      "sold_at": "2026-07-22T10:00:00Z"
+    }
+  ]
+}
+```
+
+Returns `404` when no inventory record exists for the given `store_id`/`product_id` pair.
 
 ### Reconcile Inventory
 
