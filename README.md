@@ -190,6 +190,51 @@ Possible `status` values:
 | `mismatch` | Actual quantity diverges from history-derived expectation.     |
 | `missing`  | No inventory record exists for the given store/product pair.   |
 
+### Anomaly Detection
+
+The service includes a production-ready rule-based anomaly detection engine that automatically monitors
+inventory and sales events for suspicious patterns. Anomalies are detected during event processing and
+can be queried via REST APIs.
+
+#### Detected Anomaly Types
+
+- **Negative Inventory**: Inventory quantities below zero
+- **Sudden Sales Spike**: Unusually large sales transactions compared to historical average
+- **Large Inventory Adjustment**: Unusually large inventory adjustments
+- **Rapid Consecutive Sales**: Multiple sales transactions in a short time window
+
+#### Anomaly Query Examples
+
+List all open anomalies:
+```bash
+curl "http://localhost:8000/api/v1/anomalies?status=open"
+```
+
+Get critical severity anomalies:
+```bash
+curl "http://localhost:8000/api/v1/anomalies?severity=critical"
+```
+
+Get anomalies for a specific inventory:
+```bash
+curl "http://localhost:8000/api/v1/anomalies/inventory/{inventory_id}"
+```
+
+Update anomaly status:
+```bash
+curl -X PATCH \
+  "http://localhost:8000/api/v1/anomalies/{anomaly_id}/status" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "resolved"}'
+```
+
+Get anomaly statistics:
+```bash
+curl "http://localhost:8000/api/v1/anomalies/stats/summary"
+```
+
+For comprehensive anomaly detection documentation, see [`docs/anomaly_detection.md`](docs/anomaly_detection.md).
+
 ## Testing
 
 - Unit and component tests:

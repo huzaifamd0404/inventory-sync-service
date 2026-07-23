@@ -45,6 +45,7 @@ class BatchProcessingService:
         inventory_service: InventoryService,
         batch_size: int = 100,
         max_batch_wait_ms: int = 5000,
+        anomaly_detection_service=None,
     ) -> None:
         """
         Initialize batch processing service.
@@ -53,6 +54,7 @@ class BatchProcessingService:
             inventory_service: Service for processing individual events
             batch_size: Maximum number of events per batch
             max_batch_wait_ms: Maximum time to wait before processing a partial batch
+            anomaly_detection_service: Optional service for anomaly detection
         """
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
@@ -62,6 +64,7 @@ class BatchProcessingService:
         self._inventory_service = inventory_service
         self._batch_size = batch_size
         self._max_batch_wait_ms = max_batch_wait_ms
+        self._anomaly_detection_service = anomaly_detection_service
         self._current_batch: EventBatch | None = None
         self._metrics = BatchMetrics()
 
@@ -252,6 +255,21 @@ class BatchProcessingService:
             result = self._inventory_service.process_event(event)
             self._metrics.record_database_operation(success=True)
 
+            # Trigger anomaly detection if service is available
+            if self._anomaly_detection_service and not result.duplicate:
+                try:
+                    self._detect_and_persist_anomalies(result.product_id, result.store_id, str(event.event_id))
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception(
+                        "batch_processing_anomaly_detection_error",
+                        extra={
+                            "event_id": str(event.event_id),
+                            "product_id": result.product_id,
+                            "store_id": result.store_id,
+                        },
+                    )
+                    # Don't fail the batch if anomaly detection fails
+
             return BatchEventProcessingResult(
                 event_id=event.event_id,
                 success=True,
@@ -306,6 +324,62 @@ class BatchProcessingService:
                 error=f"Unexpected error: {type(exc).__name__}",
             )
 
+    def _detect_and_persist_anomalies(
+        self,
+        product_id: str,
+        store_id: str,
+        event_id: str,
+    ) -> None:
+        """
+        Detect and persist anomalies for a product/store combination.
+
+        Args:
+            product_id: Product identifier
+            store_id: Store identifier
+            event_id: Source event ID
+
+        Raises:
+            Exception: If detection or persistence fails
+        """
+        from sqlalchemy import select
+        from app.database.models import Inventory
+        from app.database.session import SessionLocal
+
+        # Find the inventory item
+        with SessionLocal() as session:
+            inventory = session.execute(
+                select(Inventory).where(
+                    (Inventory.sku == product_id) & (Inventory.warehouse_id == store_id)
+                )
+            ).scalar_one_or_none()
+
+            if inventory is None:
+                logger.debug(
+                    "inventory_not_found_for_anomaly_detection",
+                    extra={
+                        "product_id": product_id,
+                        "store_id": store_id,
+                    },
+                )
+                return
+
+            # Detect anomalies
+            anomalies = self._anomaly_detection_service.detect_anomalies(
+                inventory_id=str(inventory.id),
+                event_id=event_id,
+            )
+
+            if anomalies:
+                self._anomaly_detection_service.persist_anomalies(anomalies)
+                logger.info(
+                    "anomalies_detected_and_persisted",
+                    extra={
+                        "count": len(anomalies),
+                        "inventory_id": str(inventory.id),
+                        "event_id": event_id,
+                    },
+                )
+
     def reset_metrics(self) -> None:
         """Reset metrics to initial state."""
         self._metrics.reset()
@@ -331,12 +405,16 @@ def get_batch_processing_service(
 
     def _factory() -> BatchProcessingService:
         from app.services.inventory_service import get_inventory_service
+        from app.services.anomaly_detection_service import get_anomaly_detection_service
 
         inventory_service = get_inventory_service()
+        anomaly_detection_service = get_anomaly_detection_service()
+
         return BatchProcessingService(
             inventory_service=inventory_service,
             batch_size=batch_size,
             max_batch_wait_ms=max_batch_wait_ms,
+            anomaly_detection_service=anomaly_detection_service,
         )
 
     return _factory

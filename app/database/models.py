@@ -139,6 +139,7 @@ class Anomaly(Base):
     __table_args__ = (
         Index("ix_anomalies_inventory_detected_at", "inventory_id", "detected_at"),
         Index("ix_anomalies_status_severity", "status", "severity"),
+        Index("ix_anomalies_event_id", "event_id", unique=True),
     )
 
     id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -147,6 +148,7 @@ class Anomaly(Base):
         ForeignKey("inventory.id", ondelete="CASCADE"),
         nullable=False,
     )
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     anomaly_type: Mapped[str] = mapped_column(String(64), nullable=False)
     severity: Mapped[AnomalySeverity] = mapped_column(
         SqlEnum(AnomalySeverity, name="anomaly_severity"),
