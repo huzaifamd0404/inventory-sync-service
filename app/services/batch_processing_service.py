@@ -46,6 +46,8 @@ class BatchProcessingService:
         batch_size: int = 100,
         max_batch_wait_ms: int = 5000,
         anomaly_detection_service=None,
+        alert_service=None,
+        alert_producer=None,
     ) -> None:
         """
         Initialize batch processing service.
@@ -55,6 +57,8 @@ class BatchProcessingService:
             batch_size: Maximum number of events per batch
             max_batch_wait_ms: Maximum time to wait before processing a partial batch
             anomaly_detection_service: Optional service for anomaly detection
+            alert_service: Optional service for alert management
+            alert_producer: Optional Kafka producer for publishing alerts
         """
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
@@ -65,6 +69,8 @@ class BatchProcessingService:
         self._batch_size = batch_size
         self._max_batch_wait_ms = max_batch_wait_ms
         self._anomaly_detection_service = anomaly_detection_service
+        self._alert_service = alert_service
+        self._alert_producer = alert_producer
         self._current_batch: EventBatch | None = None
         self._metrics = BatchMetrics()
 
@@ -380,6 +386,75 @@ class BatchProcessingService:
                     },
                 )
 
+                # Generate alerts for HIGH and CRITICAL severity anomalies
+                if self._alert_service and self._alert_producer:
+                    self._generate_and_publish_alerts(anomalies, inventory.id)
+
+    def _generate_and_publish_alerts(self, anomalies: list, inventory_id) -> None:
+        """Generate and publish alerts for HIGH and CRITICAL anomalies.
+
+        Args:
+            anomalies: List of detected anomalies
+            inventory_id: Associated inventory ID
+        """
+        from app.database.models import AnomalySeverity
+        from app.config.settings import get_settings
+
+        settings = get_settings()
+
+        for anomaly in anomalies:
+            # Only generate alerts for HIGH and CRITICAL severity anomalies
+            if anomaly.severity == AnomalySeverity.CRITICAL:
+                if not settings.alert_critical_severity_enabled:
+                    logger.debug(
+                        "alert_generation_disabled_for_critical",
+                        extra={"anomaly_id": str(anomaly.id)},
+                    )
+                    continue
+            elif anomaly.severity == AnomalySeverity.HIGH:
+                if not settings.alert_high_severity_enabled:
+                    logger.debug(
+                        "alert_generation_disabled_for_high",
+                        extra={"anomaly_id": str(anomaly.id)},
+                    )
+                    continue
+            else:
+                # Skip LOW and MEDIUM severity anomalies
+                continue
+
+            try:
+                # Create alert through service (handles deduplication)
+                alert = self._alert_service.create_alert(
+                    anomaly_id=anomaly.id,
+                    inventory_id=inventory_id,
+                    severity=anomaly.severity,
+                    title=f"Alert: {anomaly.anomaly_type}",
+                    description=anomaly.description,
+                    event_id=anomaly.event_id,
+                )
+
+                # Publish alert to Kafka
+                self._alert_producer.publish_alert(alert)
+
+                logger.info(
+                    "alert_generated_and_published",
+                    extra={
+                        "alert_id": str(alert.id),
+                        "anomaly_id": str(anomaly.id),
+                        "severity": anomaly.severity.value,
+                    },
+                )
+
+            except Exception as exc:  # noqa: BLE001
+                # Log error but don't fail event processing
+                logger.exception(
+                    "alert_generation_failed",
+                    extra={
+                        "anomaly_id": str(anomaly.id),
+                        "error": str(exc),
+                    },
+                )
+
     def reset_metrics(self) -> None:
         """Reset metrics to initial state."""
         self._metrics.reset()
@@ -406,15 +481,21 @@ def get_batch_processing_service(
     def _factory() -> BatchProcessingService:
         from app.services.inventory_service import get_inventory_service
         from app.services.anomaly_detection_service import get_anomaly_detection_service
+        from app.services.alert_service import get_alert_service
+        from app.producer.alert_kafka_producer import KafkaAlertProducer
 
         inventory_service = get_inventory_service()
         anomaly_detection_service = get_anomaly_detection_service()
+        alert_service = get_alert_service()
+        alert_producer = KafkaAlertProducer.from_settings()
 
         return BatchProcessingService(
             inventory_service=inventory_service,
             batch_size=batch_size,
             max_batch_wait_ms=max_batch_wait_ms,
             anomaly_detection_service=anomaly_detection_service,
+            alert_service=alert_service,
+            alert_producer=alert_producer,
         )
 
     return _factory

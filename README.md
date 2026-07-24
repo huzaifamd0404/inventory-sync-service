@@ -235,6 +235,90 @@ curl "http://localhost:8000/api/v1/anomalies/stats/summary"
 
 For comprehensive anomaly detection documentation, see [`docs/anomaly_detection.md`](docs/anomaly_detection.md).
 
+### Real-Time Anomaly Alerting System
+
+The service includes a production-ready alerting system that automatically generates and manages alerts 
+when HIGH or CRITICAL severity anomalies are detected. Alerts are published to Kafka in real-time and can 
+be managed via REST APIs.
+
+#### Alert Features
+
+- **Automatic Generation**: Alerts triggered by HIGH and CRITICAL severity anomalies
+- **Intelligent Deduplication**: Prevents duplicate alerts within configurable time windows (default: 5 minutes)
+- **Alert Lifecycle Management**: Track alerts from triggered through acknowledged to resolved
+- **Real-Time Publishing**: Alerts published to `inventory_alerts` Kafka topic
+- **Comprehensive REST APIs**: List, retrieve, acknowledge, resolve, and suppress alerts
+- **Built-in Statistics**: Monitor alert volume, response times, and resolution metrics
+
+#### Alert Status Flow
+
+```
+TRIGGERED → ACKNOWLEDGED → RESOLVED
+   ↓
+SUPPRESSED (can transition back to TRIGGERED after suppression expires)
+```
+
+#### Alert Management Examples
+
+List all triggered CRITICAL alerts:
+```bash
+curl "http://localhost:8000/api/v1/alerts?severity=critical&status=triggered"
+```
+
+Get a specific alert:
+```bash
+curl "http://localhost:8000/api/v1/alerts/{alert_id}"
+```
+
+Acknowledge an alert:
+```bash
+curl -X POST \
+  "http://localhost:8000/api/v1/alerts/{alert_id}/acknowledge" \
+  -H "Content-Type: application/json" \
+  -d '{"acknowledged_by": "operator@example.com"}'
+```
+
+Resolve an alert:
+```bash
+curl -X POST \
+  "http://localhost:8000/api/v1/alerts/{alert_id}/resolve" \
+  -H "Content-Type: application/json" \
+  -d '{"resolved_by": "operator@example.com"}'
+```
+
+Suppress an alert until a specific time:
+```bash
+curl -X POST \
+  "http://localhost:8000/api/v1/alerts/{alert_id}/suppress" \
+  -H "Content-Type: application/json" \
+  -d '{"suppressed_until": "2026-07-24T14:30:00Z"}'
+```
+
+Get alert statistics:
+```bash
+curl "http://localhost:8000/api/v1/alerts/stats/summary"
+```
+
+#### Alert Configuration
+
+Configure alert behavior in `.env`:
+```bash
+# Enable/disable alerts by severity
+ALERT_HIGH_SEVERITY_ENABLED=true
+ALERT_CRITICAL_SEVERITY_ENABLED=true
+
+# Deduplication time window (seconds)
+ALERT_DEDUPLICATION_WINDOW_SECONDS=300
+
+# Timeout for stale unacknowledged alerts (seconds)
+ALERT_ACKNOWLEDGE_TIMEOUT_SECONDS=3600
+
+# Kafka topic for alerts
+KAFKA_TOPIC_ALERTS=inventory_alerts
+```
+
+For comprehensive alerting system documentation, see [`docs/alerting_system.md`](docs/alerting_system.md).
+
 ## Testing
 
 - Unit and component tests:

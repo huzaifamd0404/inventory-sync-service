@@ -85,6 +85,10 @@ class Inventory(TimestampMixin, Base):
         back_populates="inventory",
         cascade="all, delete-orphan",
     )
+    alerts: Mapped[list[Alert]] = relationship(
+        back_populates="inventory",
+        cascade="all, delete-orphan",
+    )
 
 
 class InventoryHistory(Base):
@@ -167,6 +171,10 @@ class Anomaly(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     inventory: Mapped[Inventory] = relationship(back_populates="anomalies")
+    alerts: Mapped[list[Alert]] = relationship(
+        back_populates="anomaly",
+        cascade="all, delete-orphan",
+    )
 
 
 class ProcessedEvent(Base):
@@ -211,6 +219,68 @@ class FailedEvent(Base):
     failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AlertStatus(str, Enum):
+    """Status of an alert in its lifecycle."""
+
+    TRIGGERED = "triggered"  # Alert has been triggered
+    ACKNOWLEDGED = "acknowledged"  # Alert acknowledged by operator
+    RESOLVED = "resolved"  # Underlying issue has been resolved
+    SUPPRESSED = "suppressed"  # Alert temporarily suppressed
+
+
+class AlertSeverity(str, Enum):
+    """Severity level for alerts (HIGH and CRITICAL)."""
+
+    HIGH = "high"  # High priority alert
+    CRITICAL = "critical"  # Critical priority alert
+
+
+class Alert(TimestampMixin, Base):
+    """Alert triggered by anomaly detection engine."""
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        Index("ix_alerts_anomaly_triggered_at", "anomaly_id", "triggered_at"),
+        Index("ix_alerts_status_severity", "status", "severity"),
+        Index("ix_alerts_inventory_triggered_at", "inventory_id", "triggered_at"),
+        Index("ix_alerts_event_id", "event_id", unique=True),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    anomaly_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("anomalies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    inventory_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("inventory.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    severity: Mapped[AlertSeverity] = mapped_column(
+        SqlEnum(AlertSeverity, name="alert_severity"),
+        nullable=False,
+    )
+    status: Mapped[AlertStatus] = mapped_column(
+        SqlEnum(AlertStatus, name="alert_status"),
+        nullable=False,
+        default=AlertStatus.TRIGGERED,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    triggered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    suppressed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    anomaly: Mapped[Anomaly] = relationship(back_populates="alerts")
+    inventory: Mapped[Inventory] = relationship(back_populates="alerts")
+
+
 class ReconciliationStatus(str, Enum):
     MATCH = "match"
     MISMATCH = "mismatch"
@@ -247,6 +317,9 @@ class ReconciliationRecord(TimestampMixin, Base):
 
 
 __all__ = [
+    "Alert",
+    "AlertSeverity",
+    "AlertStatus",
     "Anomaly",
     "AnomalySeverity",
     "AnomalyStatus",

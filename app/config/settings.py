@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     kafka_publish_retry_backoff_seconds: float = Field(default=0.25, ge=0)
     kafka_publish_timeout_seconds: int = Field(default=10, ge=1)
     kafka_topic_sales_events: str = Field(default="sales_events")
+    kafka_topic_alerts: str = Field(default="inventory_alerts")
     kafka_consumer_group_id: str = Field(default="inventory-sync-consumer")
     kafka_consumer_sales_group_id: str = Field(default="sales-sync-consumer")
     kafka_consumer_max_attempts: int = Field(default=3, ge=1)
@@ -54,6 +55,24 @@ class Settings(BaseSettings):
     batch_size: int = Field(default=100, ge=1, le=10000)
     batch_max_wait_ms: int = Field(default=5000, ge=1, le=60000)
     kafka_consumer_poll_timeout_ms: int = Field(default=1000, ge=100, le=30000)
+
+    # Alert configuration
+    alert_deduplication_window_seconds: int = Field(
+        default=300,
+        ge=1,
+        description="Time window for deduplicating alerts for same anomaly (in seconds)",
+    )
+    alert_high_severity_enabled: bool = Field(
+        default=True, description="Enable alerts for HIGH severity anomalies"
+    )
+    alert_critical_severity_enabled: bool = Field(
+        default=True, description="Enable alerts for CRITICAL severity anomalies"
+    )
+    alert_acknowledge_timeout_seconds: int = Field(
+        default=3600,
+        ge=60,
+        description="Time before unacknowledged alert is considered stale (in seconds)",
+    )
 
     enable_dependency_health_checks: bool = Field(default=False)
 
